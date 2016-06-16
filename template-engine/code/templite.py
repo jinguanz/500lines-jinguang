@@ -3,6 +3,8 @@ import re
 
 class TempliteSyntaxError(ValueError):
     """Raise when a template has a syntax error"""
+    pass
+
 
 class CodeBuilder(object):
     """Build source code conveniently"""
@@ -28,12 +30,13 @@ class CodeBuilder(object):
         self.code.append(section)
         return section
 
-    INDENT_STEP = 4 # PEP8 standard
+    INDENT_STEP = 4  # PEP8 standard
+
     def indent(self):
         """Increases the current indent for following lines."""
         self.indent_level += self.INDENT_STEP
 
-    def dedent(self): 
+    def dedent(self):
         """Decreases the current indent for following lines."""
         self.indent_level -= self.INDENT_STEP
 
@@ -80,6 +83,7 @@ class Templite(object):
         code.add_line('to_str = str')
 
         buffered = []
+
         def flush_output():
             """Force 'buffered' to the code builder"""
             if len(buffered) == 1:
@@ -106,33 +110,52 @@ class Templite(object):
                 words = token[2:-2].strip().split()
                 if words[0] == 'if':
                     if len(words) != 2:
-                        self._syntax_error('Don\'t understand if', token)
+                        self._syntax_error("Don't understand if", token)
                     ops_stack.append('if')
-                    code.add_line('if {0}'.format(words[1]))
+                    code.add_line('if {0}:'.format(self._expr_code(words[1])))
                     code.indent()
                 elif words[0] == 'for':
                     # Loop: iterate over expression result
-                    if len(words) != 4 and words[2] != 'in':
-                        self._syntax_error('Don\'t understand for', token)
+                    if len(words) != 4 or words[2] != 'in':
+                        self._syntax_error("Don't understand for", token)
                     ops_stack.append('for')
                     self._variable(words[1], self.loop_vars)
                     code.add_line(
                         'for c_{0} in {1}:'.format(words[1], self._expr_code(words[3]))
                     )
                     code.indent()
+                elif words[0] == 'else':
+                    if 'if' not in ops_stack:
+                        self._syntax_error('Mismatched else statement', token)
+                    if len(words) != 1:
+                        self._syntax_error("Don't understand else", token)
+                    last_ops = ops_stack[-1]
+                    if last_ops not in ('if', ):
+                        self._syntax_error("Mismatched else", token)
+                    code.dedent()
+                    code.add_line('else:')
+                    code.indent()
+                elif words[0] == 'elif':
+                    if 'if' not in ops_stack:
+                        self._syntax_error("Mismatched elif statement", token)
+                    if len(words) != 2:
+                        self._syntax_error("Mismatched elif statement", token)
+                    code.dedent()
+                    code.add_line("elif {}:".format(self._expr_code(words[1])))
+                    code.indent()
                 elif words[0].startswith('end'):
                     # Endsomething
                     if len(words) != 1:
-                        self._syntax_error('Don\'t understand end', tokens)
+                        self._syntax_error("Don't understand end", token)
                     end_what = words[0][3:]
                     if not ops_stack:
                         self._syntax_error('Too many ends', token)
                     start_what = ops_stack.pop()
                     if start_what != end_what:
-                        self._syntax_error('Missing end tag', token)
+                        self._syntax_error('Mismatched end tag', end_what)
                     code.dedent()
                 else:
-                    self._syntax_error('Don\'t understand tag', tokens)
+                    self._syntax_error("Don't understand tag", words[0])
             else:
                 if token:
                     buffered.append(repr(token))
@@ -142,7 +165,7 @@ class Templite(object):
         flush_output()
 
         for var_name in self.all_vars - self.loop_vars:
-            vars_code.add_line('c_{0} = context[\'{1}\']'.format(var_name, var_name))
+            vars_code.add_line('c_{0} = context[{1}]'.format(var_name, repr(var_name)))
 
         code.add_line('return \'\'.join(result)')
         code.dedent()
@@ -168,7 +191,7 @@ class Templite(object):
 
     def _syntax_error(self, msg, thing):
         """Raise a syntax error using 'msg', and showing 'thins'."""
-        raise TempliteSyntaxError('{0}: {1}'.format(msg, thing))
+        raise TempliteSyntaxError('{0}: {1}'.format(msg, repr(thing)))
 
     def _variable(self, name, vars_set):
         """Track that 'name' is used as variable.
@@ -178,8 +201,8 @@ class Templite(object):
         Raise an syntax error if 'name' if not a valid name.
 
         """
-        if not re.match(r'[_a-zA-Z][_a-zA-Z0-9]*$', name):
-            self._synctax_error('Not a valid name', name)
+        if not re.match(r"[_a-zA-Z][_a-zA-Z0-9]*$", name):
+            self._syntax_error('Not a valid name', name)
         vars_set.add(name)
 
     def render(self, context=None):
@@ -204,39 +227,3 @@ class Templite(object):
             if callable(value):
                 value = value()
         return value
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
