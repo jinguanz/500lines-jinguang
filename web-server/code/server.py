@@ -1,12 +1,35 @@
 import BaseHTTPServer
 import os
+import subprocess
 
 
 class ServerException(Exception):
     pass
 
 
-class case_no_file(object):
+class base_case(object):
+    """base case"""
+
+    def handle_file(self, handler, full_path):
+        try:
+            with open(full_path, 'rb') as reader:
+                content = reader.read()
+            handler.send_content(content)
+        except IOError as msg:
+            msg = "'{0}' canot be read: {1}".format(full_path, msg)
+            handler.handel_error(msg)
+
+    def index_path(self, handler):
+        return os.path.join(handler.full_path, 'index.html')
+
+    def test(self, handler):
+        assert False, 'Not Implemented.'
+
+    def act(self, handler):
+        assert False, 'Not Implemented'
+
+
+class case_no_file(base_case):
     """File or directory does not exit"""
 
     def test(self, handler):
@@ -16,17 +39,29 @@ class case_no_file(object):
         raise ServerException("'{0}' not found".format(handler.path))
 
 
-class case_existing_file(object):
+class case_cgi_file(base_case):
+    def run_cgi(self, handler):
+        data = subprocess.check_output(["python", handler.full_path])
+        handler.send_content(data)
+
+    def test(self, handler):
+        return os.path.isfile(handler.full_path) and handler.full_path.endswith('.py')
+
+    def act(self, handler):
+        self.run_cgi(handler)
+
+
+class case_existing_file(base_case):
     """File exists."""
 
     def test(self, handler):
         return os.path.isfile(handler.full_path)
 
     def act(self, handler):
-        handler.handle_file(handler.full_path)
+        self.handle_file(handler, handler.full_path)
 
 
-class case_always_fail(object):
+class case_always_fail(base_case):
     """Base cas if nothing else worked"""
 
     def test(self, handler):
@@ -36,23 +71,17 @@ class case_always_fail(object):
         raise ServerException("Unknown object '{0}'".format(handler.path))
 
 
-class case_directory_index_file(object):
+class case_directory_index_file(base_case):
     """Serve index.html page for a directory"""
-
-    def index_path(self, handler):
-        return os.path.join(handler.full_path, 'index.html')
 
     def test(self, handler):
         return os.path.isdir(handler.full_path) and os.path.isfile(self.index_path(handler))
 
     def act(self, handler):
-        handler.handle_file(self.index_path(handler))
+        self.handle_file(handler, self.index_path(handler))
 
 
-class case_directory_no_index_file(object):
-    def index_path(self, handler):
-        return os.path.join(handler.full_path, 'index.html')
-
+class case_directory_no_index_file(base_case):
     def test(self, handler):
         return os.path.isdir(handler.full_path) and not os.path.isfile(self.index_path(handler))
 
@@ -96,8 +125,8 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         </html>
         '''
 
-    Cases = [case_no_file(), case_existing_file(), case_directory_index_file(),
-             case_directory_no_index_file(), case_always_fail()]
+    Cases = [case_no_file(), case_cgi_file(), case_existing_file(), case_directory_index_file(),  case_always_fail()]
+
     # Cases = [case_directory_no_index_file()]
 
     def do_GET(self):
